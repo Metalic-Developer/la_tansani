@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- إضافة تصريح الإنترنت للتواصل مع Supabase -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
-        android:label="la_tansani"
+        android:label="لا تنساني"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
