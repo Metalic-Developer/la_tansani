@@ -1,52 +1,62 @@
-import 'package:intl/intl.dart';
-
-enum AppWeekday {
-  saturday, sunday, monday, tuesday,
-  wednesday, thursday, friday
-}
+import 'package:flutter/foundation.dart';
+import 'constants.dart';
 
 class AppDay {
   AppDay._();
 
-  static DateTime current([DateTime? now]) {
-    final value = now ?? DateTime.now();
-    if (value.hour < 4) {
-      return DateTime(value.year, value.month, value.day)
-          .subtract(const Duration(days: 1));
+  static const int startHour = AppConstants.dayStartHour;
+
+  static DateTime current() => fromDateTime(DateTime.now());
+
+  static DateTime fromDateTime(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final date = DateTime(local.year, local.month, local.day);
+    if (local.hour < startHour) {
+      return date.subtract(const Duration(days: 1));
     }
-    return DateTime(value.year, value.month, value.day);
+    return date;
   }
 
-  static int weekdayNumber([DateTime? now]) {
-    final date = current(now);
-    switch (date.weekday) {
-      case DateTime.saturday: return 0;
-      case DateTime.sunday: return 1;
-      case DateTime.monday: return 2;
-      case DateTime.tuesday: return 3;
-      case DateTime.wednesday: return 4;
-      case DateTime.thursday: return 5;
-      case DateTime.friday: return 6;
-      default: return 0;
-    }
+  static String dateKey([DateTime? dateTime]) {
+    final day = dateTime == null ? current() : fromDateTime(dateTime);
+    final y = day.year.toString().padLeft(4, '0');
+    final m = day.month.toString().padLeft(2, '0');
+    final d = day.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
   }
 
-  static String arabicName([DateTime? now]) {
-    switch (weekdayNumber(now)) {
-      case 0: return 'السبت';
-      case 1: return 'الأحد';
-      case 2: return 'الإثنين';
-      case 3: return 'الثلاثاء';
-      case 4: return 'الأربعاء';
-      case 5: return 'الخميس';
-      case 6: return 'الجمعة';
-      default: return '';
-    }
+  static int weekdayNumber([DateTime? dateTime]) {
+    final day = dateTime == null ? current() : fromDateTime(dateTime);
+    return (day.weekday + 1) % 7;
   }
 
-  static String dateKey([DateTime? now]) {
-    return DateFormat('yyyy-MM-dd').format(current(now));
+  static DateTime previous([DateTime? dateTime]) {
+    final day = dateTime == null ? current() : fromDateTime(dateTime);
+    return day.subtract(const Duration(days: 1));
   }
 
-  static DateTime fromDateKey(String key) => DateTime.parse(key);
+  static DateTime next([DateTime? dateTime]) {
+    final day = dateTime == null ? current() : fromDateTime(dateTime);
+    return day.add(const Duration(days: 1));
+  }
+
+  static String arabicName([DateTime? dateTime]) {
+    final w = weekdayNumber(dateTime);
+    const names = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+    return names[w];
+  }
+
+  /// YYYY-Www (ISO week) — يستخدم للفيديو الأسبوعي
+  static String weekKey([DateTime? dateTime]) {
+    final day = dateTime == null ? current() : fromDateTime(dateTime);
+    final thursday = day.add(Duration(days: 4 - day.weekday));
+    final year = thursday.year;
+    final firstDayOfYear = DateTime(year, 1, 1);
+    final days = thursday.difference(firstDayOfYear).inDays + 1;
+    final week = ((days - 1) / 7).floor() + 1;
+    return '$year-W${week.toString().padLeft(2, '0')}';
+  }
+
+  @visibleForTesting
+  static DateTime normalize(DateTime dt) => fromDateTime(dt);
 }

@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-
 import '../../models/user.dart';
 import '../../repositories/quran_repository.dart';
 import '../../services/supabase_service.dart';
 
 class WeeklyPlanScreen extends StatefulWidget {
   final AppUser student;
-
   const WeeklyPlanScreen({super.key, required this.student});
 
   @override
@@ -14,18 +12,18 @@ class WeeklyPlanScreen extends StatefulWidget {
 }
 
 class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
-  final List<String> days = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
-  final List<Map<String, dynamic>> surahs = [];
+  final _days = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+  final List<Map<String, dynamic>> _surahs = [];
+  final Map<int, int> _surahAyahCount = {};
 
-  final Map<int, int?> quranSurah = {};
-  final Map<int, String?> quranSurahName = {};
-  final Map<int, int?> quranStart = {};
-  final Map<int, int?> quranEnd = {};
-
-  final Map<int, int?> qiyamSurah = {};
-  final Map<int, String?> qiyamSurahName = {};
-  final Map<int, int?> qiyamStart = {};
-  final Map<int, int?> qiyamEnd = {};
+  final _qSurah = <int, int?>{};
+  final _qSurahName = <int, String?>{};
+  final _qStart = <int, int?>{};
+  final _qEnd = <int, int?>{};
+  final _ySurah = <int, int?>{};
+  final _ySurahName = <int, String?>{};
+  final _yStart = <int, int?>{};
+  final _yEnd = <int, int?>{};
 
   bool loading = true;
   bool saving = false;
@@ -33,12 +31,17 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
   @override
   void initState() {
     super.initState();
-    load();
+    _load();
   }
 
-  Future<void> load() async {
+  Future<void> _load() async {
     final quranRepo = QuranRepository();
     final surahList = await quranRepo.getAllSurahs();
+
+    for (final s in surahList) {
+      final count = await quranRepo.getAyatOfSora(s['sora'] as int);
+      _surahAyahCount[s['sora'] as int] = count.length;
+    }
 
     final result = await SupabaseService.instance.client
         .from('weekly_plan_days')
@@ -48,54 +51,77 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
     if (!mounted) return;
 
     setState(() {
-      surahs.addAll(surahList.map((e) => {'id': e['sora'], 'name': e['sora_name']}));
+      _surahs.addAll(surahList.map((e) => {'id': e['sora'], 'name': e['sora_name']}));
 
-      for (final item in result) {
-        final day = item['weekday'] as int;
-        quranSurah[day] = item['quran_surah'] as int?;
-        quranSurahName[day] = item['quran_surah_name'] as String?;
-        quranStart[day] = item['quran_start_ayah'] as int?;
-        quranEnd[day] = item['quran_end_ayah'] as int?;
-
-        qiyamSurah[day] = item['qiyam_surah'] as int?;
-        qiyamSurahName[day] = item['qiyam_surah_name'] as String?;
-        qiyamStart[day] = item['qiyam_start_ayah'] as int?;
-        qiyamEnd[day] = item['qiyam_end_ayah'] as int?;
+      for (final raw in result) {
+        final item = Map<String, dynamic>.from(raw);
+        final d = item['weekday'] as int;
+        _qSurah[d] = item['quran_surah'] as int?;
+        _qSurahName[d] = item['quran_surah_name'] as String?;
+        _qStart[d] = item['quran_start_ayah'] as int?;
+        _qEnd[d] = item['quran_end_ayah'] as int?;
+        _ySurah[d] = item['qiyam_surah'] as int?;
+        _ySurahName[d] = item['qiyam_surah_name'] as String?;
+        _yStart[d] = item['qiyam_start_ayah'] as int?;
+        _yEnd[d] = item['qiyam_end_ayah'] as int?;
       }
-
       loading = false;
     });
   }
 
-  Future<void> save() async {
-    setState(() => saving = true);
-
-    for (int day = 0; day < 7; day++) {
-      await SupabaseService.instance.client.from('weekly_plan_days').upsert(
-        {
-          'student_id': widget.student.id,
-          'weekday': day,
-          'quran_surah': quranSurah[day],
-          'quran_surah_name': quranSurahName[day],
-          'quran_start_ayah': quranStart[day],
-          'quran_end_ayah': quranEnd[day],
-          'qiyam_surah': qiyamSurah[day],
-          'qiyam_surah_name': qiyamSurahName[day],
-          'qiyam_start_ayah': qiyamStart[day],
-          'qiyam_end_ayah': qiyamEnd[day],
-        },
-        onConflict: 'student_id,weekday',
-      );
+  Future<void> _save() async {
+    for (int d = 0; d < 7; d++) {
+      if (_qStart[d] != null && _qEnd[d] != null && _qStart[d]! > _qEnd[d]!) {
+        _snack('خطأ في ورد القرآن يوم ${_days[d]}: من > إلى');
+        return;
+      }
+      if (_yStart[d] != null && _yEnd[d] != null && _yStart[d]! > _yEnd[d]!) {
+        _snack('خطأ في قيام الليل يوم ${_days[d]}: من > إلى');
+        return;
+      }
     }
 
-    if (!mounted) return;
-    setState(() => saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم حفظ خطة الأسبوع')),
-    );
+    setState(() => saving = true);
+
+    try {
+      final payload = List.generate(7, (d) => {
+        'weekday': d,
+        'quran_surah': _qSurah[d],
+        'quran_surah_name': _qSurahName[d],
+        'quran_start_ayah': _qStart[d],
+        'quran_end_ayah': _qEnd[d],
+        'qiyam_surah': _ySurah[d],
+        'qiyam_surah_name': _ySurahName[d],
+        'qiyam_start_ayah': _yStart[d],
+        'qiyam_end_ayah': _yEnd[d],
+      });
+
+      await SupabaseService.instance.client.rpc(
+        'save_weekly_plan',
+        params: {
+          'p_student_id': widget.student.id,
+          'p_days': payload,
+        },
+      );
+
+      if (!mounted) return;
+      _snack('تم حفظ الخطة بالكامل ✓');
+    } catch (e) {
+      if (!mounted) return;
+      _snack('فشل الحفظ: $e');
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
   }
 
-  Widget dayCard(int day) {
+  void _snack(String m) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Widget _dayCard(int day) {
+    final qMax = _surahAyahCount[_qSurah[day]] ?? 286;
+    final yMax = _surahAyahCount[_ySurah[day]] ?? 286;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
       child: Padding(
@@ -103,38 +129,57 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(days[day], style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+            Text(_days[day],
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             const Text('ورد القرآن', style: TextStyle(fontWeight: FontWeight.bold)),
             DropdownButtonFormField<int>(
-              initialValue: quranSurah[day],
+              initialValue: _qSurah[day],
               decoration: const InputDecoration(labelText: 'السورة'),
-              items: surahs
-                  .map((s) => DropdownMenuItem<int>(value: s['id'] as int, child: Text(s['name'] as String)))
+              items: _surahs
+                  .map((s) => DropdownMenuItem<int>(
+                        value: s['id'] as int,
+                        child: Text(s['name'] as String),
+                      ))
                   .toList(),
-              onChanged: (value) {
-                final item = surahs.firstWhere((e) => e['id'] == value);
+              onChanged: (v) {
+                final item = _surahs.firstWhere((e) => e['id'] == v);
                 setState(() {
-                  quranSurah[day] = value;
-                  quranSurahName[day] = item['name'];
+                  _qSurah[day] = v;
+                  _qSurahName[day] = item['name'];
+                  _qStart[day] = null;
+                  _qEnd[day] = null;
                 });
               },
             ),
             Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: TextFormField(
+                    key: ValueKey('qs-$day-$qMax'),
                     keyboardType: TextInputType.number,
+                    initialValue: _qStart[day]?.toString(),
                     decoration: const InputDecoration(labelText: 'من آية'),
-                    onChanged: (value) => quranStart[day] = int.tryParse(value),
+                    onChanged: (v) {
+                      final n = int.tryParse(v);
+                      _qStart[day] = (n != null && n >= 1 && n <= qMax) ? n : null;
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: TextField(
+                  child: TextFormField(
+                    key: ValueKey('qe-$day-$qMax'),
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'إلى آية'),
-                    onChanged: (value) => quranEnd[day] = int.tryParse(value),
+                    initialValue: _qEnd[day]?.toString(),
+                    decoration: InputDecoration(
+                      labelText: 'إلى آية',
+                      helperText: 'الحد الأقصى $qMax',
+                    ),
+                    onChanged: (v) {
+                      final n = int.tryParse(v);
+                      _qEnd[day] = (n != null && n >= 1 && n <= qMax) ? n : null;
+                    },
                   ),
                 ),
               ],
@@ -142,34 +187,52 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
             const Divider(height: 30),
             const Text('قيام الليل', style: TextStyle(fontWeight: FontWeight.bold)),
             DropdownButtonFormField<int>(
-              initialValue: qiyamSurah[day],
+              initialValue: _ySurah[day],
               decoration: const InputDecoration(labelText: 'السورة'),
-              items: surahs
-                  .map((s) => DropdownMenuItem<int>(value: s['id'] as int, child: Text(s['name'] as String)))
+              items: _surahs
+                  .map((s) => DropdownMenuItem<int>(
+                        value: s['id'] as int,
+                        child: Text(s['name'] as String),
+                      ))
                   .toList(),
-              onChanged: (value) {
-                final item = surahs.firstWhere((e) => e['id'] == value);
+              onChanged: (v) {
+                final item = _surahs.firstWhere((e) => e['id'] == v);
                 setState(() {
-                  qiyamSurah[day] = value;
-                  qiyamSurahName[day] = item['name'];
+                  _ySurah[day] = v;
+                  _ySurahName[day] = item['name'];
+                  _yStart[day] = null;
+                  _yEnd[day] = null;
                 });
               },
             ),
             Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: TextFormField(
+                    key: ValueKey('ys-$day-$yMax'),
                     keyboardType: TextInputType.number,
+                    initialValue: _yStart[day]?.toString(),
                     decoration: const InputDecoration(labelText: 'من آية'),
-                    onChanged: (value) => qiyamStart[day] = int.tryParse(value),
+                    onChanged: (v) {
+                      final n = int.tryParse(v);
+                      _yStart[day] = (n != null && n >= 1 && n <= yMax) ? n : null;
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: TextField(
+                  child: TextFormField(
+                    key: ValueKey('ye-$day-$yMax'),
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'إلى آية'),
-                    onChanged: (value) => qiyamEnd[day] = int.tryParse(value),
+                    initialValue: _yEnd[day]?.toString(),
+                    decoration: InputDecoration(
+                      labelText: 'إلى آية',
+                      helperText: 'الحد الأقصى $yMax',
+                    ),
+                    onChanged: (v) {
+                      final n = int.tryParse(v);
+                      _yEnd[day] = (n != null && n >= 1 && n <= yMax) ? n : null;
+                    },
                   ),
                 ),
               ],
@@ -189,11 +252,13 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
           : ListView(
               padding: const EdgeInsets.all(14),
               children: [
-                for (int i = 0; i < 7; i++) dayCard(i),
+                for (int i = 0; i < 7; i++) _dayCard(i),
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: saving ? null : save,
-                  child: saving ? const CircularProgressIndicator() : const Text('حفظ الخطة'),
+                  onPressed: saving ? null : _save,
+                  child: saving
+                      ? const CircularProgressIndicator()
+                      : const Text('حفظ الخطة بالكامل'),
                 ),
               ],
             ),

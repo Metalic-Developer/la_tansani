@@ -1,24 +1,29 @@
 import 'package:just_audio/just_audio.dart';
 import '../core/app_day.dart';
+import '../models/audio_message.dart';
 import 'supabase_service.dart';
 
 class AudioPlayerService {
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayerService._();
+  static final AudioPlayerService instance = AudioPlayerService._();
 
-  Future<void> playTodayMessage() async {
+  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer get player => _player;
+
+  Future<AudioMessage?> getTodayMessage() async {
     final result = await SupabaseService.instance.client
         .from('audio_messages')
-        .select('audio_url')
+        .select()
         .eq('day_key', AppDay.dateKey())
         .maybeSingle();
+    if (result == null) return null;
+    return AudioMessage.fromMap(Map<String, dynamic>.from(result));
+  }
 
-    if (result == null) return;
-    final url = result['audio_url'] as String;
-    await _player.setUrl(url);
+  Future<void> play(AudioMessage message) async {
+    await _player.setUrl(message.audioUrl);
     await _player.play();
   }
 
-  Future<void> dispose() async {
-    await _player.dispose();
-  }
+  Future<void> stop() async => _player.stop();
 }

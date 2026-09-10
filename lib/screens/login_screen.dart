@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-
 import '../core/colors.dart';
 import '../services/auth_service.dart';
 import 'admin/admin_home_screen.dart';
-import 'home_screen.dart';
+import 'main_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -22,7 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> login() async {
+  Future<void> _login() async {
     if (_controller.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('اكتب اسم المستخدم')),
@@ -43,7 +42,7 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(
           builder: (_) => user.isAdmin
               ? const AdminHomeScreen()
-              : const HomeScreen(),
+              : const MainShell(),
         ),
       );
     } catch (e) {
@@ -103,7 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 width: double.infinity,
                 height: 55,
                 child: FilledButton(
-                  onPressed: loading ? null : login,
+                  onPressed: loading ? null : _login,
                   child: loading
                       ? const CircularProgressIndicator()
                       : const Text('دخول'),

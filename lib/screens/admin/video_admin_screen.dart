@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-
-import '../../services/supabase_service.dart';
+import '../../services/video_service.dart';
 
 class VideoAdminScreen extends StatefulWidget {
   const VideoAdminScreen({super.key});
@@ -10,30 +9,34 @@ class VideoAdminScreen extends StatefulWidget {
 }
 
 class _VideoAdminScreenState extends State<VideoAdminScreen> {
-  final titleController = TextEditingController();
-  final descriptionController = TextEditingController();
-  final urlController = TextEditingController();
+  final _title = TextEditingController();
+  final _desc = TextEditingController();
+  final _url = TextEditingController();
 
   @override
   void dispose() {
-    titleController.dispose();
-    descriptionController.dispose();
-    urlController.dispose();
+    _title.dispose();
+    _desc.dispose();
+    _url.dispose();
     super.dispose();
   }
 
-  Future<void> save() async {
-    await SupabaseService.instance.client.from('weekly_videos').insert({
-      'title': titleController.text.trim(),
-      'description': descriptionController.text.trim(),
-      'video_url': urlController.text.trim(),
-      'week_start': DateTime.now().toIso8601String().substring(0, 10),
-    });
+  Future<void> _save() async {
+    if (_title.text.trim().isEmpty || _url.text.trim().isEmpty) return;
+
+    await VideoService().addVideo(
+      title: _title.text.trim(),
+      description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
+      videoUrl: _url.text.trim(),
+    );
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم إضافة فيديو الأسبوع')),
+      const SnackBar(content: Text('تم إضافة فيديو هذا الأسبوع ✓')),
     );
+    _title.clear();
+    _desc.clear();
+    _url.clear();
   }
 
   @override
@@ -44,23 +47,23 @@ class _VideoAdminScreenState extends State<VideoAdminScreen> {
         padding: const EdgeInsets.all(18),
         children: [
           TextField(
-            controller: titleController,
+            controller: _title,
             decoration: const InputDecoration(labelText: 'عنوان الفيديو'),
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: descriptionController,
+            controller: _desc,
             decoration: const InputDecoration(labelText: 'الوصف'),
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: urlController,
+            controller: _url,
             decoration: const InputDecoration(labelText: 'رابط الفيديو'),
           ),
           const SizedBox(height: 25),
           FilledButton(
-            onPressed: save,
-            child: const Text('إضافة الفيديو'),
+            onPressed: _save,
+            child: const Text('إضافة الفيديو للأسبوع الحالي'),
           ),
         ],
       ),

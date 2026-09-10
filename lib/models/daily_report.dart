@@ -17,12 +17,19 @@ class DailyReport {
     required this.eveningCompleted,
   });
 
-  double get percentage {
-    int count = 0;
-    if (quranCompleted) count++;
-    if (qiyamCompleted) count++;
-    if (morningCompleted) count++;
-    if (eveningCompleted) count++;
-    return (count / 4) * 100;
-  }
+  int get completedCount => [
+    quranCompleted, qiyamCompleted, morningCompleted, eveningCompleted,
+  ].where((e) => e).length;
+
+  double get percentage => completedCount / 4 * 100;
+
+  factory DailyReport.fromMap(Map<String, dynamic> m) => DailyReport(
+    id: m['id'].toString(),
+    studentId: m['student_id'].toString(),
+    dayKey: m['day_key'].toString(),
+    quranCompleted: m['quran_completed'] == true,
+    qiyamCompleted: m['qiyam_completed'] == true,
+    morningCompleted: m['morning_completed'] == true,
+    eveningCompleted: m['evening_completed'] == true,
+  );
 }

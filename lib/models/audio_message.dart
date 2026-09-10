@@ -15,14 +15,12 @@ class AudioMessage {
     required this.dayKey,
   });
 
-  factory AudioMessage.fromMap(Map<String, dynamic> map) {
-    return AudioMessage(
-      id: map['id'].toString(),
-      title: map['title'] as String?,
-      audioUrl: map['audio_url'].toString(),
-      speakerName: map['speaker_name'] as String?,
-      speakerImageUrl: map['speaker_image_url'] as String?,
-      dayKey: map['day_key'].toString(),
-    );
-  }
+  factory AudioMessage.fromMap(Map<String, dynamic> m) => AudioMessage(
+    id: m['id'].toString(),
+    title: m['title'] as String?,
+    audioUrl: m['audio_url'].toString(),
+    speakerName: m['speaker_name'] as String?,
+    speakerImageUrl: m['speaker_image_url'] as String?,
+    dayKey: m['day_key'].toString(),
+  );
 }

@@ -14,6 +14,7 @@ class Assignment {
   final AssignmentStatus status;
   final String? carriedFromDate;
   final String? originalPlanDate;
+  final int carryDepth;
   final DateTime createdAt;
   final DateTime? completedAt;
   final int? lastAyahId;
@@ -30,13 +31,16 @@ class Assignment {
     required this.status,
     this.carriedFromDate,
     this.originalPlanDate,
+    this.carryDepth = 0,
     required this.createdAt,
     this.completedAt,
     this.lastAyahId,
   });
 
+  bool get isQuran => type == AssignmentType.quran;
   bool get isQiyam => type == AssignmentType.qiyam;
   bool get isCompleted => status == AssignmentStatus.completed;
+  bool get isCarried => status == AssignmentStatus.carried;
 
   factory Assignment.fromMap(Map<String, dynamic> map) {
     return Assignment(
@@ -44,21 +48,22 @@ class Assignment {
       studentId: map['student_id'].toString(),
       type: map['type'] == 'qiyam' ? AssignmentType.qiyam : AssignmentType.quran,
       plannedDate: map['planned_date'].toString(),
-      surah: map['surah'] as int,
-      surahName: map['surah_name'] as String,
-      startAyah: map['start_ayah'] as int,
-      endAyah: map['end_ayah'] as int,
+      surah: (map['surah'] as num).toInt(),
+      surahName: map['surah_name'].toString(),
+      startAyah: (map['start_ayah'] as num).toInt(),
+      endAyah: (map['end_ayah'] as num).toInt(),
       status: _statusFromString(map['status']),
-      carriedFromDate: map['carried_from_date'] as String?,
-      originalPlanDate: map['original_plan_date'] as String?,
+      carriedFromDate: map['carried_from_date']?.toString(),
+      originalPlanDate: map['original_plan_date']?.toString(),
+      carryDepth: (map['carry_depth'] as num?)?.toInt() ?? 0,
       createdAt: DateTime.parse(map['created_at'].toString()),
-      completedAt: map['completed_at'] != null ? DateTime.parse(map['completed_at'].toString()) : null,
-      lastAyahId: map['last_ayah_id'] as int?,
+      completedAt: map['completed_at'] == null ? null : DateTime.parse(map['completed_at'].toString()),
+      lastAyahId: (map['last_ayah_id'] as num?)?.toInt(),
     );
   }
 
-  static AssignmentStatus _statusFromString(Object? value) {
-    switch (value) {
+  static AssignmentStatus _statusFromString(Object? v) {
+    switch (v) {
       case 'in_progress': return AssignmentStatus.inProgress;
       case 'completed': return AssignmentStatus.completed;
       case 'carried': return AssignmentStatus.carried;

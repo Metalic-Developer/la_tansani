@@ -1,16 +1,20 @@
 import 'package:uuid/uuid.dart';
 import '../core/app_day.dart';
 import '../models/assignment.dart';
+import 'completion_engine.dart';
 import 'supabase_service.dart';
 
 class AssignmentService {
+  AssignmentService({CompletionEngine? completionEngine})
+      : _completionEngine = completionEngine ?? CompletionEngine();
+
   final _db = SupabaseService.instance.client;
   final _uuid = const Uuid();
+  final CompletionEngine _completionEngine;
 
   Future<List<Assignment>> getTodayAssignments(String studentId) async {
-    final day = AppDay.dateKey();
     await ensureDailyAssignments(studentId);
-
+    final day = AppDay.dateKey();
     final result = await _db
         .from('daily_assignments')
         .select()
@@ -23,19 +27,32 @@ class AssignmentService {
         .toList();
   }
 
+  /// Backlog Model: أي ورد غير مكتمل يُرحّل (carry) لليوم التالي
   Future<void> ensureDailyAssignments(String studentId) async {
-    final today = AppDay.current();
-    final todayKey = AppDay.dateKey(today);
+    final todayKey = AppDay.dateKey();
 
     final existing = await _db
         .from('daily_assignments')
-        .select('id')
+        .select('type')
         .eq('student_id', studentId)
         .eq('planned_date', todayKey);
 
-    if ((existing as List).isNotEmpty) return;
+    final existingTypes = {
+      for (final raw in existing)
+        Map<String, dynamic>.from(raw)['type'].toString()
+    };
 
-    final weekday = AppDay.weekdayNumber(today);
+    // جلب كل الأوراد السابقة غير المكتملة
+    final previous = await _db
+        .from('daily_assignments')
+        .select()
+        .eq('student_id', studentId)
+        .lt('planned_date', todayKey)
+        .neq('status', 'completed')
+        .order('planned_date', ascending: true);
+
+    // جلب خطة الأسبوع
+    final weekday = AppDay.weekdayNumber();
     final plan = await _db
         .from('weekly_plan_days')
         .select()
@@ -43,135 +60,118 @@ class AssignmentService {
         .eq('weekday', weekday)
         .maybeSingle();
 
-    final previousAssignments = await _db
-        .from('daily_assignments')
-        .select()
-        .eq('student_id', studentId)
-        .lt('planned_date', todayKey)
-        .neq('status', 'completed')
-        .order('planned_date');
-
     final rows = <Map<String, dynamic>>[];
 
-    final prevQuran = _findFirstUncompleted(previousAssignments, 'quran');
-    if (prevQuran != null) {
-      rows.add(_carriedRow(
-        studentId: studentId,
-        type: 'quran',
-        plannedDate: todayKey,
-        previous: prevQuran,
-      ));
-    } else if (plan != null && plan['quran_start_ayah'] != null && plan['quran_end_ayah'] != null) {
-      rows.add(_plannedRow(
-        studentId: studentId,
-        type: 'quran',
-        plannedDate: todayKey,
-        plan: plan,
-        start: plan['quran_start_ayah'],
-        end: plan['quran_end_ayah'],
-      ));
+    for (final type in ['quran', 'qiyam']) {
+      if (existingTypes.contains(type)) continue;
+
+      // هل فيه ورد قديم غير مكتمل من نفس النوع؟
+      Map<String, dynamic>? previousForType;
+      for (final raw in previous) {
+        final item = Map<String, dynamic>.from(raw);
+        if (item['type'] == type && item['status'] != 'completed') {
+          previousForType = item;
+          break;
+        }
+      }
+
+      if (previousForType != null) {
+        // رحّل الورد القديم
+        final previousDepth =
+            (previousForType['carry_depth'] as num?)?.toInt() ?? 0;
+
+        rows.add({
+          'id': _uuid.v4(),
+          'student_id': studentId,
+          'type': type,
+          'planned_date': todayKey,
+          'surah': previousForType['surah'],
+          'surah_name': previousForType['surah_name'],
+          'start_ayah': previousForType['start_ayah'],
+          'end_ayah': previousForType['end_ayah'],
+          'status': 'carried',
+          'carried_from_date': previousForType['planned_date'],
+          'original_plan_date': previousForType['original_plan_date'] ??
+              previousForType['planned_date'],
+          'carry_depth': previousDepth + 1,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+        continue;
+      }
+
+      // مفيش ورد قديم — استخدم خطة اليوم من الأسبوع
+      if (plan == null) continue;
+
+      final prefix = type == 'quran' ? 'quran' : 'qiyam';
+      final surah = plan['${prefix}_surah'];
+      final surahName = plan['${prefix}_surah_name'];
+      final start = plan['${prefix}_start_ayah'];
+      final end = plan['${prefix}_end_ayah'];
+
+      if (surah == null || surahName == null || start == null || end == null) {
+        continue;
+      }
+
+      rows.add({
+        'id': _uuid.v4(),
+        'student_id': studentId,
+        'type': type,
+        'planned_date': todayKey,
+        'surah': surah,
+        'surah_name': surahName,
+        'start_ayah': start,
+        'end_ayah': end,
+        'status': 'pending',
+        'carried_from_date': null,
+        'original_plan_date': todayKey,
+        'carry_depth': 0,
+        'created_at': DateTime.now().toIso8601String(),
+      });
     }
 
-    final prevQiyam = _findFirstUncompleted(previousAssignments, 'qiyam');
-    if (prevQiyam != null) {
-      rows.add(_carriedRow(
-        studentId: studentId,
-        type: 'qiyam',
-        plannedDate: todayKey,
-        previous: prevQiyam,
-      ));
-    } else if (plan != null && plan['qiyam_start_ayah'] != null && plan['qiyam_end_ayah'] != null) {
-      rows.add(_plannedRow(
-        studentId: studentId,
-        type: 'qiyam',
-        plannedDate: todayKey,
-        plan: plan,
-        start: plan['qiyam_start_ayah'],
-        end: plan['qiyam_end_ayah'],
-      ));
-    }
+    if (rows.isEmpty) return;
 
-    if (rows.isNotEmpty) {
-      await _db.from('daily_assignments').insert(rows);
-    }
+    await _db.from('daily_assignments').upsert(
+      rows,
+      onConflict: 'student_id,planned_date,type',
+    );
   }
 
   Future<void> startAssignment(String assignmentId) async {
     await _db
         .from('daily_assignments')
         .update({'status': 'in_progress'})
-        .eq('id', assignmentId);
+        .eq('id', assignmentId)
+        .neq('status', 'completed');
   }
 
   Future<void> completeAssignment({
     required String assignmentId,
     required int lastAyahId,
   }) async {
-    await _db
+    final result = await _db
         .from('daily_assignments')
         .update({
           'status': 'completed',
           'completed_at': DateTime.now().toIso8601String(),
           'last_ayah_id': lastAyahId,
         })
+        .eq('id', assignmentId)
+        .neq('status', 'completed')
+        .select('student_id')
+        .maybeSingle();
+
+    if (result == null) return;
+    await _completionEngine.refreshForStudent(result['student_id'].toString());
+  }
+
+  Future<void> setLastAyah({
+    required String assignmentId,
+    required int lastAyahId,
+  }) async {
+    await _db
+        .from('daily_assignments')
+        .update({'last_ayah_id': lastAyahId})
         .eq('id', assignmentId);
-  }
-
-  Map<String, dynamic>? _findFirstUncompleted(List<dynamic> assignments, String type) {
-    for (final item in assignments) {
-      final map = Map<String, dynamic>.from(item);
-      if (map['type'] == type && map['status'] != 'completed') {
-        return map;
-      }
-    }
-    return null;
-  }
-
-  Map<String, dynamic> _plannedRow({
-    required String studentId,
-    required String type,
-    required String plannedDate,
-    required Map<String, dynamic> plan,
-    required int start,
-    required int end,
-  }) {
-    final surah = type == 'quran' ? plan['quran_surah'] : plan['qiyam_surah'];
-    final surahName = type == 'quran' ? plan['quran_surah_name'] : plan['qiyam_surah_name'];
-
-    return {
-      'id': _uuid.v4(),
-      'student_id': studentId,
-      'type': type,
-      'planned_date': plannedDate,
-      'surah': surah,
-      'surah_name': surahName,
-      'start_ayah': start,
-      'end_ayah': end,
-      'status': 'pending',
-      'original_plan_date': plannedDate,
-      'created_at': DateTime.now().toIso8601String(),
-    };
-  }
-
-  Map<String, dynamic> _carriedRow({
-    required String studentId,
-    required String type,
-    required String plannedDate,
-    required Map<String, dynamic> previous,
-  }) {
-    return {
-      'id': _uuid.v4(),
-      'student_id': studentId,
-      'type': type,
-      'planned_date': plannedDate,
-      'surah': previous['surah'],
-      'surah_name': previous['surah_name'],
-      'start_ayah': previous['start_ayah'],
-      'end_ayah': previous['end_ayah'],
-      'status': 'carried',
-      'carried_from_date': previous['planned_date'],
-      'original_plan_date': previous['original_plan_date'],
-      'created_at': DateTime.now().toIso8601String(),
-    };
   }
 }

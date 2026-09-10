@@ -17,25 +17,21 @@ class DatabaseService {
   }
 
   Future<Database> _initDatabase() async {
-    final documentsDir = await getApplicationDocumentsDirectory();
-    final dbPath = join(documentsDir.path, 'quran.db');
+    final dir = await getApplicationDocumentsDirectory();
+    final dbPath = join(dir.path, 'quran.db');
 
-    final exists = await File(dbPath).exists();
-    if (!exists) {
+    if (!await File(dbPath).exists()) {
       final data = await rootBundle.load('assets/db/quran.db');
-      final bytes = data.buffer.asUint8List();
-      await File(dbPath).writeAsBytes(bytes, flush: true);
+      await File(dbPath).writeAsBytes(data.buffer.asUint8List(), flush: true);
     }
 
-    final db = await openDatabase(
+    return openDatabase(
       dbPath,
-      version: 1,
-      onOpen: (db) async {
-        await _createAppTables(db);
-      },
+      version: 2,
+      onCreate: (db, v) async => _createAppTables(db),
+      onUpgrade: (db, oldV, newV) async => _migrate(db, oldV),
+      onOpen: (db) async => _createAppTables(db),
     );
-
-    return db;
   }
 
   Future<void> _createAppTables(Database db) async {
@@ -54,8 +50,11 @@ class DatabaseService {
         student_id TEXT NOT NULL,
         started_at TEXT NOT NULL,
         ended_at TEXT,
+        current_ayah_id INTEGER,
         last_ayah_id INTEGER,
-        mistakes_count INTEGER NOT NULL DEFAULT 0
+        last_confirmed_ayah_id INTEGER,
+        mistakes_count INTEGER NOT NULL DEFAULT 0,
+        completed INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -64,10 +63,38 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL,
         ayah_id INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        UNIQUE(session_id, ayah_id)
+        mistake_type TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_session_mistakes_session
+      ON session_mistakes(session_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_session_mistakes_ayah
+      ON session_mistakes(ayah_id)
+    ''');
+  }
+
+  Future<void> _migrate(Database db, int oldVersion) async {
+    if (oldVersion < 2) {
+      await _safeAdd(db, 'quran_sessions', 'current_ayah_id INTEGER');
+      await _safeAdd(db, 'quran_sessions', 'last_confirmed_ayah_id INTEGER');
+      await _safeAdd(db, 'quran_sessions', 'completed INTEGER NOT NULL DEFAULT 0');
+      await _safeAdd(db, 'session_mistakes', 'mistake_type TEXT');
+      await _safeAdd(db, 'session_mistakes', 'note TEXT');
+    }
+    await _createAppTables(db);
+  }
+
+  Future<void> _safeAdd(Database db, String table, String def) async {
+    try {
+      await db.execute('ALTER TABLE $table ADD COLUMN $def');
+    } catch (_) {}
   }
 
   Future<void> close() async {

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../core/colors.dart';
 import '../models/adhkar.dart';
 import '../services/adhkar_service.dart';
@@ -7,7 +6,6 @@ import '../services/auth_service.dart';
 
 class AdhkarScreen extends StatefulWidget {
   final String initialType;
-
   const AdhkarScreen({super.key, this.initialType = 'morning'});
 
   @override
@@ -20,48 +18,51 @@ class _AdhkarScreenState extends State<AdhkarScreen> {
   int index = 0;
   int remaining = 0;
   bool loading = true;
+  bool completed = false;
 
   @override
   void initState() {
     super.initState();
     type = widget.initialType;
-    load();
+    _load();
   }
 
-  Future<void> load() async {
+  Future<void> _load() async {
+    setState(() => loading = true);
     final user = await AuthService().getCurrentUser();
     if (user == null) return;
 
-    final level = await AdhkarService().getLevel(
+    final done = await AdhkarService().isCompleted(
       studentId: user.id,
       type: type,
     );
+    if (done) {
+      if (!mounted) return;
+      setState(() {
+        completed = true;
+        loading = false;
+      });
+      return;
+    }
 
-    final result = await AdhkarService().getAdhkar(
-      type: type,
-      level: level,
-    );
-
+    final level = await AdhkarService().getLevel(studentId: user.id, type: type);
+    final list = await AdhkarService().getAdhkar(type: type, level: level);
     if (!mounted) return;
-
     setState(() {
-      items = result;
+      items = list;
       index = 0;
-      if (result.isNotEmpty) {
-        remaining = result.first.repetitions;
-      }
+      remaining = list.isEmpty ? 0 : list.first.repetitions;
+      completed = false;
       loading = false;
     });
   }
 
-  Future<void> press() async {
+  Future<void> _press() async {
     if (items.isEmpty) return;
-
     if (remaining > 1) {
       setState(() => remaining--);
       return;
     }
-
     if (index < items.length - 1) {
       setState(() {
         index++;
@@ -72,27 +73,9 @@ class _AdhkarScreenState extends State<AdhkarScreen> {
 
     final user = await AuthService().getCurrentUser();
     if (user == null) return;
-
-    await AdhkarService().complete(
-      studentId: user.id,
-      type: type,
-    );
-
+    await AdhkarService().complete(studentId: user.id, type: type);
     if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('تم بحمد الله'),
-        content: Text(type == 'morning' ? 'تم إتمام أذكار الصباح' : 'تم إتمام أذكار المساء'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('حسنًا'),
-          ),
-        ],
-      ),
-    );
+    setState(() => completed = true);
   }
 
   @override
@@ -102,81 +85,101 @@ class _AdhkarScreenState extends State<AdhkarScreen> {
     }
 
     final current = items.isEmpty ? null : items[index];
+    final isMorning = type == 'morning';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('الأذكار')),
+      appBar: AppBar(
+        title: Text(isMorning ? 'أذكار الصباح' : 'أذكار المساء'),
+      ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
             child: SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'morning', label: Text('أذكار الصباح')),
-                ButtonSegment(value: 'evening', label: Text('أذكار المساء')),
+                ButtonSegment(value: 'morning', label: Text('صباح')),
+                ButtonSegment(value: 'evening', label: Text('مساء')),
               ],
               selected: {type},
-              onSelectionChanged: (value) {
+              onSelectionChanged: (v) {
                 setState(() {
-                  type = value.first;
-                  loading = true;
+                  type = v.first;
+                  items = [];
+                  completed = false;
                 });
-                load();
+                _load();
               },
             ),
           ),
           Expanded(
-            child: current == null
-                ? const Center(child: Text('لا توجد أذكار مضافة حاليًا'))
-                : Padding(
-                    padding: const EdgeInsets.all(20),
+            child: completed
+                ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        const Icon(Icons.check_circle,
+                            size: 80, color: AppColors.green),
+                        const SizedBox(height: 16),
                         Text(
-                          type == 'morning' ? 'أذكار الصباح' : 'أذكار المساء',
-                          style: const TextStyle(fontSize: 20, color: AppColors.muted),
-                        ),
-                        const SizedBox(height: 30),
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(28),
-                            child: Column(
-                              children: [
-                                Text(
-                                  current.text,
-                                  textDirection: TextDirection.rtl,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(fontSize: 25, height: 1.9),
-                                ),
-                                if (current.reward != null) ...[
-                                  const SizedBox(height: 20),
-                                  Text(
-                                    current.reward!,
-                                    textDirection: TextDirection.rtl,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(color: AppColors.muted),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 30),
-                        SizedBox(
-                          width: 130,
-                          height: 130,
-                          child: FilledButton(
-                            onPressed: press,
-                            style: FilledButton.styleFrom(shape: const CircleBorder()),
-                            child: Text(
-                              '$remaining',
-                              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold),
-                            ),
-                          ),
+                          isMorning
+                              ? 'تم إتمام أذكار الصباح ✓'
+                              : 'تم إتمام أذكار المساء ✓',
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
-                  ),
+                  )
+                : current == null
+                    ? const Center(child: Text('لا توجد أذكار مضافة'))
+                    : Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      current.text,
+                                      textDirection: TextDirection.rtl,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontSize: 22, height: 1.9),
+                                    ),
+                                    if (current.reward != null) ...[
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        current.reward!,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(color: AppColors.muted),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 30),
+                            SizedBox(
+                              width: 140,
+                              height: 140,
+                              child: FilledButton(
+                                onPressed: _press,
+                                style: FilledButton.styleFrom(
+                                  shape: const CircleBorder(),
+                                ),
+                                child: Text(
+                                  '$remaining',
+                                  style: const TextStyle(
+                                    fontSize: 36,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
           ),
         ],
       ),
